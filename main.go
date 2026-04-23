@@ -44,38 +44,19 @@ func htmlElementToMarkdown(elem string) string {
 	}
 	return md
 }
-func stringFeed(feed *gofeed.Feed) string {
-	result := ""
-	result += fmt.Sprintf("# %s\n", htmlElementToMarkdown(feed.Title))
-	result += fmt.Sprintf("**Description:** %s\n", htmlElementToMarkdown(feed.Description))
-	result += fmt.Sprintf("**Link:** %s\n", htmlElementToMarkdown(feed.Link))
 
-	for _, item := range feed.Items {
-		result += fmt.Sprintf("#\n### %s\n", htmlElementToMarkdown(item.Title))
-		result += fmt.Sprintf("%s\n", htmlElementToMarkdown(item.Description))
-		result += fmt.Sprintf("%s\n", htmlElementToMarkdown(item.Link))
-		result += fmt.Sprintf("%s\n", htmlElementToMarkdown(item.Published))
-	}
-
-	return result
-}
-
-func sendToDiscord(feed string) error {
-	if len(feed) > 1900 {
-		feed = feed[:1900]
+func sendToDiscord(message, channelId, token string) error {
+	if len(message) > 1900 {
+		message = message[:1900] + "..."
 	}
 
 	payload := map[string]string{
-		"content": feed,
+		"content": message,
 	}
 	body, err := json.Marshal(payload)
 	if err != nil {
 		return err
 	}
-
-	env, err := os.ReadFile(".env")
-	channelId := strings.Split(string(env), "\n")[0]
-	token := strings.Split(string(env), "\n")[1]
 
 	req, err := http.NewRequest(
 		"POST",
@@ -101,6 +82,27 @@ func sendToDiscord(feed string) error {
 	return nil
 }
 
+func sendFeed(feed *gofeed.Feed, channelId, token string) error {
+	feedTitle := htmlElementToMarkdown(feed.Title)
+
+	for _, item := range feed.Items {
+		message := ""
+
+		message += fmt.Sprintf("#\n### %s\n", htmlElementToMarkdown(item.Title))
+		message += fmt.Sprintf("%s\n", htmlElementToMarkdown(item.Description))
+		message += fmt.Sprintf("%s\n", htmlElementToMarkdown(item.Link))
+		message += fmt.Sprintf("%s\n", htmlElementToMarkdown(item.Published))
+		message += feedTitle
+
+		err := sendToDiscord(message, channelId, token)
+		if err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
 func main() {
 	rssFeed := "https://cvedaily.com/feed-critical.xml"
 
@@ -109,7 +111,12 @@ func main() {
 		log.Fatal(err)
 	}
 
-	strFeed := stringFeed(feed)
+	env, err := os.ReadFile(".env")
+	channelId := strings.Split(string(env), "\n")[0]
+	token := strings.Split(string(env), "\n")[1]
 
-	sendToDiscord(strFeed)
+	err = sendFeed(feed, channelId, token)
+	if err != nil {
+		log.Fatal(err)
+	}
 }
