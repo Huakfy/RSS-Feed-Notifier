@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"net/http"
@@ -82,10 +83,24 @@ func sendToDiscord(message, channelId, token string) error {
 	return nil
 }
 
-func sendFeed(feed *gofeed.Feed, channelId, token string) error {
+func sendFeed(feed *gofeed.Feed, channelId, token, filePath string) error {
+	content, err := os.ReadFile(filePath)
+	if err != nil {
+		return err
+	}
+	lastGuid := string(content)
+	newGuid := ""
+
 	feedTitle := htmlElementToMarkdown(feed.Title)
 
-	for _, item := range feed.Items {
+	for i, item := range feed.Items {
+		if i == 0 {
+			newGuid = item.GUID
+		}
+		if item.GUID == lastGuid {
+			break
+		}
+
 		message := ""
 
 		message += fmt.Sprintf("#\n### %s\n", htmlElementToMarkdown(item.Title))
@@ -100,13 +115,45 @@ func sendFeed(feed *gofeed.Feed, channelId, token string) error {
 		}
 	}
 
+	if newGuid != lastGuid {
+		return os.WriteFile(filePath, []byte(newGuid), 0644)
+	}
+	return nil
+}
+
+func initOutputFile(filePath string) error {
+	_, err := os.Stat(filePath)
+	if errors.Is(err, os.ErrNotExist) {
+		_, err := os.Create(filePath)
+		if err != nil {
+			return err
+		}
+
+	} else if err != nil {
+		return err
+	}
+
 	return nil
 }
 
 func main() {
-	rssFeed := "https://cvedaily.com/feed-critical.xml"
+	dir := "logs"
 
-	feed, err := fetchRSSFeed(rssFeed)
+	err := os.MkdirAll(dir, 0755)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	feedUrl := "https://cvedaily.com/feed-critical.xml"
+	feedName := "cve-daily"
+
+	filePath := dir + "/" + feedName
+	err = initOutputFile(filePath)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	feed, err := fetchRSSFeed(feedUrl)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -115,7 +162,7 @@ func main() {
 	channelId := strings.Split(string(env), "\n")[0]
 	token := strings.Split(string(env), "\n")[1]
 
-	err = sendFeed(feed, channelId, token)
+	err = sendFeed(feed, channelId, token, filePath)
 	if err != nil {
 		log.Fatal(err)
 	}
